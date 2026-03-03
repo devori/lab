@@ -1,0 +1,98 @@
+:root {
+  color-scheme: light;
+  --bg: #f6f8fb;
+  --panel: #ffffff;
+  --text: #122033;
+  --muted: #54657a;
+  --line: #d8e2ee;
+  --accent: #1f6feb;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  padding: 0;
+  background: radial-gradient(circle at 20% 0%, #ffffff 0%, var(--bg) 60%);
+  color: var(--text);
+  font-family: "Pretendard", "Noto Sans KR", "Apple SD Gothic Neo", sans-serif;
+}
+
+.page {
+  max-width: 980px;
+  margin: 0 auto;
+  padding: 72px 24px 80px;
+}
+
+.hero h1 {
+  margin: 8px 0 12px;
+  font-size: clamp(2rem, 4vw, 3rem);
+}
+
+.eyebrow {
+  margin: 0;
+  color: var(--accent);
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  font-size: 0.75rem;
+}
+
+.subtitle,
+.subtitle-en {
+  margin: 4px 0;
+  color: var(--muted);
+}
+
+.subtitle {
+  font-size: 1.05rem;
+  font-weight: 600;
+}
+
+.subtitle-en {
+  font-size: 0.95rem;
+}
+
+.grid {
+  margin-top: 22px;
+  display: grid;
+  gap: 16px;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+}
+
+.card {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  padding: 20px;
+  box-shadow: 0 10px 30px rgba(18, 32, 51, 0.05);
+}
+
+.card h2 {
+  margin-top: 0;
+  margin-bottom: 10px;
+  font-size: 1.1rem;
+}
+
+.card p,
+.card li {
+  line-height: 1.6;
+  color: var(--text);
+}
+
+ul {
+  padding-left: 18px;
+  margin: 0;
+}
+
+pre {
+  margin-top: 14px;
+  padding: 12px;
+  border-radius: 10px;
+  background: #f1f5fa;
+  border: 1px solid var(--line);
+  overflow-x: auto;
+  font-size: 0.86rem;
+}
