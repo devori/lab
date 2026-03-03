@@ -42,9 +42,9 @@ Run all commands from the repository root.
 
 ## Vercel Deployment (apps/lab-web)
 
-권장: Vercel 프로젝트의 **Root Directory**를 `apps/lab-web`로 지정하세요.  
-Recommended: set Vercel project **Root Directory** to `apps/lab-web`.
+Vercel은 **Root Directory를 repo root(`.`)** 로 둔 채로도 배포할 수 있게 설정해놨습니다 (`vercel.json`).
 
 - Framework: Next.js
 - Install Command: `npm install`
-- Build Command: `npm run build`
+- Build Command: `cd apps/lab-web && npm run build`
+- Output Directory: `apps/lab-web/.next`
