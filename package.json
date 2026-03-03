@@ -2,12 +2,15 @@
   "name": "lab",
   "private": true,
   "version": "0.1.0",
-  "packageManager": "pnpm@10.0.0",
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
   "scripts": {
-    "dev": "pnpm --filter lab-web dev",
-    "dev:lab-web": "pnpm --filter lab-web dev",
-    "build": "pnpm -r build",
-    "lint": "pnpm -r lint",
-    "typecheck": "pnpm -r typecheck"
+    "dev": "npm --workspace lab-web run dev",
+    "dev:lab-web": "npm --workspace lab-web run dev",
+    "build": "npm --workspaces run build",
+    "lint": "npm --workspaces run lint",
+    "typecheck": "npm --workspaces run typecheck"
   }
 }
