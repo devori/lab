@@ -1,10 +1,8 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import {
-  BUDGET_STORAGE_KEY,
-  CATEGORY_STORAGE_KEY,
   CATEGORY_PRESETS,
   EMPTY_CUSTOM_CATEGORIES,
   formatKRW,
@@ -15,15 +13,16 @@ import {
   getTodayDate,
   getTypeLabel,
   mergeTransactions,
-  parseCustomCategoriesWithRecovery,
-  parseMonthlyBudgetsWithRecovery,
   parseImportTransactions,
-  parseTransactionsWithRecovery,
   shiftMonthKey,
   sortTransactions,
-  STORAGE_KEY,
   validateTransactionForm
 } from '@/lib/ledger';
+import {
+  createDefaultLedgerStorageAdapter,
+  createRemoteLedgerStorageAdapter,
+  loadLedgerFromLocalStorage
+} from '@/lib/ledger-storage';
 import type { CategoryMap, MonthlyBudgetMap, Transaction, TransactionFilter, TransactionType } from '@/lib/types';
 
 interface TransactionFormState {
@@ -94,34 +93,12 @@ function createId(): string {
 }
 
 export default function HomePage() {
-  const [initialStorageLoad] = useState(() => {
-    if (typeof window === 'undefined') {
-      return {
-        transactions: [] as Transaction[],
-        monthlyBudgets: {} as MonthlyBudgetMap,
-        customCategories: { ...EMPTY_CUSTOM_CATEGORIES },
-        recoveredTransactions: false,
-        recoveredBudgets: false,
-        recoveredCategories: false
-      };
-    }
-
-    const transactionsResult = parseTransactionsWithRecovery(window.localStorage.getItem(STORAGE_KEY));
-    const budgetResult = parseMonthlyBudgetsWithRecovery(window.localStorage.getItem(BUDGET_STORAGE_KEY));
-    const categoriesResult = parseCustomCategoriesWithRecovery(window.localStorage.getItem(CATEGORY_STORAGE_KEY));
-
-    return {
-      transactions: transactionsResult.data,
-      monthlyBudgets: budgetResult.data,
-      customCategories: categoriesResult.data,
-      recoveredTransactions: transactionsResult.recovered,
-      recoveredBudgets: budgetResult.recovered,
-      recoveredCategories: categoriesResult.recovered
-    };
-  });
-  const [transactions, setTransactions] = useState<Transaction[]>(initialStorageLoad.transactions);
-  const [monthlyBudgets, setMonthlyBudgets] = useState<MonthlyBudgetMap>(initialStorageLoad.monthlyBudgets);
-  const [customCategories, setCustomCategories] = useState<CategoryMap>(initialStorageLoad.customCategories);
+  const [localAdapter] = useState(() => createDefaultLedgerStorageAdapter());
+  const [remoteAdapter] = useState(() => createRemoteLedgerStorageAdapter());
+  const [initialStorageLoad] = useState(() => loadLedgerFromLocalStorage());
+  const [transactions, setTransactions] = useState<Transaction[]>(initialStorageLoad.data.transactions);
+  const [monthlyBudgets, setMonthlyBudgets] = useState<MonthlyBudgetMap>(initialStorageLoad.data.monthlyBudgets);
+  const [customCategories, setCustomCategories] = useState<CategoryMap>(initialStorageLoad.data.customCategories);
   const initialRecoveryNotice = useMemo(() => {
     if (
       !initialStorageLoad.recoveredTransactions &&
@@ -162,20 +139,93 @@ export default function HomePage() {
   const [searchText, setSearchText] = useState<string>('');
   const [sortMode, setSortMode] = useState<MonthlySort>('date_desc');
   const [undoState, setUndoState] = useState<UndoState | null>(null);
+  const [storageMode, setStorageMode] = useState<'local' | 'remote'>('local');
+  const [remoteProbeComplete, setRemoteProbeComplete] = useState(false);
 
   const thisMonthKey = getCurrentMonthKey();
 
   useEffect(() => {
-    window.localStorage.setItem(STORAGE_KEY, JSON.stringify(transactions));
-  }, [transactions]);
+    void localAdapter.saveTransactions(transactions);
+  }, [localAdapter, transactions]);
 
   useEffect(() => {
-    window.localStorage.setItem(BUDGET_STORAGE_KEY, JSON.stringify(monthlyBudgets));
-  }, [monthlyBudgets]);
+    void localAdapter.saveMonthlyBudgets(monthlyBudgets);
+  }, [localAdapter, monthlyBudgets]);
 
   useEffect(() => {
-    window.localStorage.setItem(CATEGORY_STORAGE_KEY, JSON.stringify(customCategories));
-  }, [customCategories]);
+    void localAdapter.saveCustomCategories(customCategories);
+  }, [customCategories, localAdapter]);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    const probeRemoteStorage = async () => {
+      try {
+        const loaded = await remoteAdapter.load();
+        if (cancelled) {
+          return;
+        }
+
+        setTransactions(loaded.data.transactions);
+        setMonthlyBudgets(loaded.data.monthlyBudgets);
+        setCustomCategories(loaded.data.customCategories);
+        setStorageMode('remote');
+      } catch (error) {
+        if (cancelled) {
+          return;
+        }
+
+        const fallbackMessage =
+          typeof error === 'object' &&
+          error !== null &&
+          'code' in error &&
+          error.code === 'SHEETS_CONFIG_MISSING'
+            ? 'Google Sheets 설정이 없어 로컬 저장 모드로 실행 중입니다.'
+            : '원격 저장소 연결에 실패해 로컬 저장 모드로 전환했습니다.';
+        setNotice({ tone: 'error', message: fallbackMessage });
+        setStorageMode('local');
+      } finally {
+        if (!cancelled) {
+          setRemoteProbeComplete(true);
+        }
+      }
+    };
+
+    void probeRemoteStorage();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [remoteAdapter]);
+
+  const handleRemoteSyncError = useCallback(() => {
+    setStorageMode('local');
+    setNotice({ tone: 'error', message: '원격 저장 동기화가 중단되어 로컬 모드로 전환했습니다.' });
+  }, []);
+
+  useEffect(() => {
+    if (!remoteProbeComplete || storageMode !== 'remote') {
+      return;
+    }
+
+    remoteAdapter.saveTransactions(transactions).catch(() => handleRemoteSyncError());
+  }, [handleRemoteSyncError, remoteAdapter, remoteProbeComplete, storageMode, transactions]);
+
+  useEffect(() => {
+    if (!remoteProbeComplete || storageMode !== 'remote') {
+      return;
+    }
+
+    remoteAdapter.saveMonthlyBudgets(monthlyBudgets).catch(() => handleRemoteSyncError());
+  }, [handleRemoteSyncError, monthlyBudgets, remoteAdapter, remoteProbeComplete, storageMode]);
+
+  useEffect(() => {
+    if (!remoteProbeComplete || storageMode !== 'remote') {
+      return;
+    }
+
+    remoteAdapter.saveCustomCategories(customCategories).catch(() => handleRemoteSyncError());
+  }, [customCategories, handleRemoteSyncError, remoteAdapter, remoteProbeComplete, storageMode]);
 
   useEffect(() => {
     if (!notice) {
@@ -761,6 +811,7 @@ export default function HomePage() {
 
       <section className="panel">
         <h2>데이터 관리</h2>
+        <p className="hint">저장 모드: {storageMode === 'remote' ? 'Google Sheets (원격)' : '브라우저 로컬'}</p>
         <div className="data-tools">
           <button type="button" onClick={exportTransactions}>
             JSON 내보내기

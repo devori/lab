@@ -41,6 +41,47 @@ npm run typecheck
 npm run build
 ```
 
+## Google Sheets Backend (Secure, Server-side)
+
+`apps/lab-web`의 `/household-ledger`는 기본적으로 브라우저 `localStorage`를 사용합니다.  
+서버 환경변수가 설정되면 Next.js API Route(`app/api/ledger/*`)를 통해 Google Sheets 원격 저장을 시도하고, 설정 누락 시 자동으로 로컬 모드로 폴백합니다.
+
+### 1) Vercel 무료 티어 기준 준비
+
+1. Google Cloud에서 프로젝트 생성 (기존 프로젝트 사용 가능)
+2. Google Sheets API 활성화
+3. 서비스 계정 생성 + JSON 키 발급
+4. 가계부용 Google Sheet 생성
+5. 해당 Sheet를 서비스 계정 이메일(`...@...iam.gserviceaccount.com`)에 편집 권한으로 공유
+
+### 2) Vercel Environment Variables (절대 `NEXT_PUBLIC_` 사용 금지)
+
+- `GOOGLE_SERVICE_ACCOUNT_EMAIL`
+- `GOOGLE_PRIVATE_KEY`
+- `GOOGLE_SHEET_ID`
+- `GOOGLE_PROJECT_ID` (optional)
+
+`GOOGLE_PRIVATE_KEY`는 줄바꿈이 포함된 원문 키 또는 `\\n` 이스케이프 키 모두 허용되도록 서버에서 처리합니다.
+
+### 3) Sheet Tab Schema
+
+API가 처음 접근할 때 아래 탭과 헤더를 자동 보정/생성합니다.
+
+- `Transactions`
+  - Header: `id, date, type, category, amount, memo, createdAt, updatedAt`
+- `Budgets`
+  - Header: `monthKey, budget`
+- `Categories`
+  - Header: `type, name`
+
+### 4) API Routes
+
+- `GET/PUT /api/ledger/transactions`
+- `GET/PUT /api/ledger/budgets`
+- `GET/PUT /api/ledger/categories`
+
+환경변수가 없으면 API는 `SHEETS_CONFIG_MISSING` 오류를 반환하며, 클라이언트는 로컬 저장 모드로 동작합니다.
+
 ## 가계부 MVP 체크리스트
 
 - [x] 거래 CRUD: 날짜, 구분(수입/지출), 카테고리, 금액, 메모
