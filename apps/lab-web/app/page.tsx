@@ -3,7 +3,9 @@
 import { useEffect, useMemo, useState } from 'react';
 import {
   BUDGET_STORAGE_KEY,
+  CATEGORY_STORAGE_KEY,
   CATEGORY_PRESETS,
+  EMPTY_CUSTOM_CATEGORIES,
   formatKRW,
   getCurrentMonthKey,
   getMonthlyBudgetProgress,
@@ -12,6 +14,7 @@ import {
   getTodayDate,
   getTypeLabel,
   mergeTransactions,
+  parseCustomCategoriesWithRecovery,
   parseMonthlyBudgetsWithRecovery,
   parseImportTransactions,
   parseTransactionsWithRecovery,
@@ -20,7 +23,7 @@ import {
   STORAGE_KEY,
   validateTransactionForm
 } from '@/lib/ledger';
-import type { MonthlyBudgetMap, Transaction, TransactionFilter, TransactionType } from '@/lib/types';
+import type { CategoryMap, MonthlyBudgetMap, Transaction, TransactionFilter, TransactionType } from '@/lib/types';
 
 interface TransactionFormState {
   date: string;
@@ -53,8 +56,10 @@ interface UndoState {
   message: string;
   transactions: Transaction[];
   monthlyBudgets: MonthlyBudgetMap;
+  customCategories: CategoryMap;
   selectedMonth: string;
   budgetDrafts: Record<string, string>;
+  categoryDrafts: Record<TransactionType, string>;
   filter: TransactionFilter;
   formState: TransactionFormState;
   formErrors: FormErrors;
@@ -93,40 +98,59 @@ export default function HomePage() {
       return {
         transactions: [] as Transaction[],
         monthlyBudgets: {} as MonthlyBudgetMap,
+        customCategories: { ...EMPTY_CUSTOM_CATEGORIES },
         recoveredTransactions: false,
-        recoveredBudgets: false
+        recoveredBudgets: false,
+        recoveredCategories: false
       };
     }
 
     const transactionsResult = parseTransactionsWithRecovery(window.localStorage.getItem(STORAGE_KEY));
     const budgetResult = parseMonthlyBudgetsWithRecovery(window.localStorage.getItem(BUDGET_STORAGE_KEY));
+    const categoriesResult = parseCustomCategoriesWithRecovery(window.localStorage.getItem(CATEGORY_STORAGE_KEY));
 
     return {
       transactions: transactionsResult.data,
       monthlyBudgets: budgetResult.data,
+      customCategories: categoriesResult.data,
       recoveredTransactions: transactionsResult.recovered,
-      recoveredBudgets: budgetResult.recovered
+      recoveredBudgets: budgetResult.recovered,
+      recoveredCategories: categoriesResult.recovered
     };
   });
   const [transactions, setTransactions] = useState<Transaction[]>(initialStorageLoad.transactions);
   const [monthlyBudgets, setMonthlyBudgets] = useState<MonthlyBudgetMap>(initialStorageLoad.monthlyBudgets);
+  const [customCategories, setCustomCategories] = useState<CategoryMap>(initialStorageLoad.customCategories);
   const initialRecoveryNotice = useMemo(() => {
-    if (!initialStorageLoad.recoveredTransactions && !initialStorageLoad.recoveredBudgets) {
+    if (
+      !initialStorageLoad.recoveredTransactions &&
+      !initialStorageLoad.recoveredBudgets &&
+      !initialStorageLoad.recoveredCategories
+    ) {
       return null;
     }
 
     const recoveredTargets = [
       initialStorageLoad.recoveredTransactions ? '거래 내역' : '',
-      initialStorageLoad.recoveredBudgets ? '월별 예산' : ''
+      initialStorageLoad.recoveredBudgets ? '월별 예산' : '',
+      initialStorageLoad.recoveredCategories ? '커스텀 카테고리' : ''
     ].filter(Boolean);
 
     return {
       tone: 'error' as NoticeTone,
       message: `손상된 저장 데이터(${recoveredTargets.join(', ')})를 복구해 유효 항목만 불러왔습니다.`
     };
-  }, [initialStorageLoad.recoveredTransactions, initialStorageLoad.recoveredBudgets]);
+  }, [
+    initialStorageLoad.recoveredTransactions,
+    initialStorageLoad.recoveredBudgets,
+    initialStorageLoad.recoveredCategories
+  ]);
   const [selectedMonth, setSelectedMonth] = useState<string>(getCurrentMonthKey());
   const [budgetDrafts, setBudgetDrafts] = useState<Record<string, string>>({});
+  const [categoryDrafts, setCategoryDrafts] = useState<Record<TransactionType, string>>({
+    income: '',
+    expense: ''
+  });
   const [filter, setFilter] = useState<TransactionFilter>('all');
   const [editingId, setEditingId] = useState<string | null>(null);
   const [formState, setFormState] = useState<TransactionFormState>(createEmptyForm('expense'));
@@ -147,6 +171,10 @@ export default function HomePage() {
   useEffect(() => {
     window.localStorage.setItem(BUDGET_STORAGE_KEY, JSON.stringify(monthlyBudgets));
   }, [monthlyBudgets]);
+
+  useEffect(() => {
+    window.localStorage.setItem(CATEGORY_STORAGE_KEY, JSON.stringify(customCategories));
+  }, [customCategories]);
 
   useEffect(() => {
     if (!notice) {
@@ -186,6 +214,14 @@ export default function HomePage() {
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
   }, [editingId, formState.type]);
+
+  const categoryOptionsByType = useMemo(
+    () => ({
+      income: [...CATEGORY_PRESETS.income, ...customCategories.income],
+      expense: [...CATEGORY_PRESETS.expense, ...customCategories.expense]
+    }),
+    [customCategories]
+  );
 
   const thisMonthSummary = useMemo(
     () => getMonthlySummary(transactions, thisMonthKey),
@@ -276,7 +312,10 @@ export default function HomePage() {
   }, [monthlyTransactions]);
 
   const resetForm = (type: TransactionType = 'expense') => {
-    setFormState(createEmptyForm(type));
+    setFormState(() => ({
+      ...createEmptyForm(type),
+      category: categoryOptionsByType[type][0]
+    }));
     setFormErrors({});
     setEditingId(null);
   };
@@ -285,8 +324,13 @@ export default function HomePage() {
     message,
     transactions: transactions.map((item) => ({ ...item })),
     monthlyBudgets: { ...monthlyBudgets },
+    customCategories: {
+      income: [...customCategories.income],
+      expense: [...customCategories.expense]
+    },
     selectedMonth,
     budgetDrafts: { ...budgetDrafts },
+    categoryDrafts: { ...categoryDrafts },
     filter,
     formState: { ...formState },
     formErrors: { ...formErrors },
@@ -302,8 +346,10 @@ export default function HomePage() {
 
     setTransactions(undoState.transactions);
     setMonthlyBudgets(undoState.monthlyBudgets);
+    setCustomCategories(undoState.customCategories);
     setSelectedMonth(undoState.selectedMonth);
     setBudgetDrafts(undoState.budgetDrafts);
+    setCategoryDrafts(undoState.categoryDrafts);
     setFilter(undoState.filter);
     setFormState(undoState.formState);
     setFormErrors(undoState.formErrors);
@@ -315,7 +361,7 @@ export default function HomePage() {
   };
 
   const handleTypeChange = (nextType: TransactionType) => {
-    const nextCategories = CATEGORY_PRESETS[nextType];
+    const nextCategories = categoryOptionsByType[nextType];
 
     setFormState((prev) => ({
       ...prev,
@@ -324,6 +370,56 @@ export default function HomePage() {
     }));
 
     setFormErrors((prev) => ({ ...prev, category: undefined }));
+  };
+
+  const addCustomCategory = (type: TransactionType) => {
+    const candidate = categoryDrafts[type].trim();
+    if (!candidate) {
+      setNotice({ tone: 'error', message: `${getTypeLabel(type)} 카테고리 이름을 입력하세요.` });
+      return;
+    }
+
+    if (CATEGORY_PRESETS[type].includes(candidate) || customCategories[type].includes(candidate)) {
+      setNotice({ tone: 'error', message: '이미 등록된 카테고리입니다.' });
+      return;
+    }
+
+    setCustomCategories((prev) => ({ ...prev, [type]: [...prev[type], candidate] }));
+    setCategoryDrafts((prev) => ({ ...prev, [type]: '' }));
+    setNotice({ tone: 'success', message: `${getTypeLabel(type)} 카테고리 "${candidate}"를 추가했습니다.` });
+  };
+
+  const removeCustomCategory = (type: TransactionType, category: string) => {
+    const isUsed = transactions.some((item) => item.type === type && item.category === category);
+    if (isUsed) {
+      setNotice({ tone: 'error', message: `사용 중인 카테고리("${category}")는 삭제할 수 없습니다.` });
+      return;
+    }
+
+    setCustomCategories((prev) => ({
+      ...prev,
+      [type]: prev[type].filter((item) => item !== category)
+    }));
+    if (formState.type === type && formState.category === category) {
+      setFormState((prev) => ({ ...prev, category: CATEGORY_PRESETS[type][0] }));
+      setFormErrors((prev) => ({ ...prev, category: undefined }));
+    }
+    setNotice({ tone: 'success', message: `카테고리 "${category}"를 삭제했습니다.` });
+  };
+
+  const resetCategoryPresets = () => {
+    if (customCategories.income.length === 0 && customCategories.expense.length === 0) {
+      setNotice({ tone: 'success', message: '이미 기본 카테고리 프리셋 상태입니다.' });
+      return;
+    }
+
+    setCustomCategories({ ...EMPTY_CUSTOM_CATEGORIES });
+    setCategoryDrafts({ income: '', expense: '' });
+    if (!CATEGORY_PRESETS[formState.type].includes(formState.category)) {
+      setFormState((prev) => ({ ...prev, category: CATEGORY_PRESETS[prev.type][0] }));
+      setFormErrors((prev) => ({ ...prev, category: undefined }));
+    }
+    setNotice({ tone: 'success', message: '카테고리를 기본 프리셋으로 되돌렸습니다.' });
   };
 
   const handleSubmit = (event: React.FormEvent<HTMLFormElement>) => {
@@ -558,14 +654,22 @@ export default function HomePage() {
     setUndoState(captureUndoState('전체 초기화를 실행했습니다. 7초 안에 되돌릴 수 있습니다.'));
     setTransactions([]);
     setMonthlyBudgets({});
+    setCustomCategories({ ...EMPTY_CUSTOM_CATEGORIES });
     setSelectedMonth(getCurrentMonthKey());
     setBudgetDrafts({});
+    setCategoryDrafts({ income: '', expense: '' });
     setFilter('all');
     resetForm('expense');
     setNotice({ tone: 'success', message: '모든 데이터를 초기화했습니다.' });
   };
 
-  const categoryOptions = CATEGORY_PRESETS[formState.type];
+  const categoryOptions = useMemo(() => {
+    const baseOptions = [...categoryOptionsByType[formState.type]];
+    if (formState.category && !baseOptions.includes(formState.category)) {
+      baseOptions.push(formState.category);
+    }
+    return baseOptions;
+  }, [categoryOptionsByType, formState.type, formState.category]);
 
   return (
     <main className="ledger-page">
@@ -694,6 +798,62 @@ export default function HomePage() {
         <p className="hint">
           병합은 ID 기준으로 합치며, 동일 ID 충돌 시 최신 수정 시각 데이터를 유지합니다.
         </p>
+      </section>
+
+      <section className="panel">
+        <div className="category-header">
+          <h2>카테고리 관리</h2>
+          <button type="button" className="ghost" onClick={resetCategoryPresets}>
+            기본 프리셋 복원
+          </button>
+        </div>
+        <p className="hint">커스텀 카테고리만 추가/삭제할 수 있습니다. 기본 프리셋은 고정됩니다.</p>
+        <div className="category-manage-grid">
+          {(['income', 'expense'] as const).map((type) => (
+            <article key={type} className="category-manage-card">
+              <h3>{getTypeLabel(type)} 카테고리</h3>
+              <div className="category-input-row">
+                <input
+                  type="text"
+                  maxLength={20}
+                  value={categoryDrafts[type]}
+                  onChange={(event) =>
+                    setCategoryDrafts((prev) => ({
+                      ...prev,
+                      [type]: event.target.value
+                    }))
+                  }
+                  onKeyDown={(event) => {
+                    if (event.key !== 'Enter' || event.nativeEvent.isComposing) {
+                      return;
+                    }
+
+                    event.preventDefault();
+                    addCustomCategory(type);
+                  }}
+                  placeholder={`${getTypeLabel(type)} 커스텀 카테고리`}
+                />
+                <button type="button" onClick={() => addCustomCategory(type)}>
+                  추가
+                </button>
+              </div>
+              {customCategories[type].length === 0 ? (
+                <p className="empty category-empty">등록된 커스텀 카테고리가 없습니다.</p>
+              ) : (
+                <ul className="category-chip-list">
+                  {customCategories[type].map((category) => (
+                    <li key={`${type}-${category}`} className="category-chip">
+                      <span>{category}</span>
+                      <button type="button" className="danger" onClick={() => removeCustomCategory(type, category)}>
+                        삭제
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </article>
+          ))}
+        </div>
       </section>
 
       <section className="panel">

@@ -12,6 +12,7 @@ export interface Transaction {
 }
 
 export type TransactionFilter = 'all' | TransactionType;
+export type CategoryMap = Record<TransactionType, string[]>;
 
 export interface MonthlySummary {
   income: number;

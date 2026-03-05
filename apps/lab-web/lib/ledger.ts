@@ -1,4 +1,5 @@
 import type {
+  CategoryMap,
   MonthlyBudgetMap,
   MonthlyBudgetProgress,
   MonthlySummary,
@@ -8,6 +9,7 @@ import type {
 
 export const STORAGE_KEY = 'lab-web-household-ledger-v1';
 export const BUDGET_STORAGE_KEY = 'lab-web-household-ledger-budget-v1';
+export const CATEGORY_STORAGE_KEY = 'lab-web-household-ledger-category-v1';
 
 export const CATEGORY_PRESETS: Record<TransactionType, string[]> = {
   income: ['급여', '부수입', '이자', '환급', '용돈', '기타수입'],
@@ -18,6 +20,11 @@ export const EMPTY_SUMMARY: MonthlySummary = {
   income: 0,
   expense: 0,
   balance: 0
+};
+
+export const EMPTY_CUSTOM_CATEGORIES: CategoryMap = {
+  income: [],
+  expense: []
 };
 
 export interface ParseResult<T> {
@@ -102,6 +109,64 @@ export function parseMonthlyBudgetsWithRecovery(raw: string | null): ParseResult
     return { data: validEntries, recovered };
   } catch {
     return { data: {}, recovered: true };
+  }
+}
+
+export function parseCustomCategories(raw: string | null): CategoryMap {
+  return parseCustomCategoriesWithRecovery(raw).data;
+}
+
+export function parseCustomCategoriesWithRecovery(raw: string | null): ParseResult<CategoryMap> {
+  if (!raw) {
+    return { data: EMPTY_CUSTOM_CATEGORIES, recovered: false };
+  }
+
+  try {
+    const parsed: unknown = JSON.parse(raw);
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+      return { data: EMPTY_CUSTOM_CATEGORIES, recovered: true };
+    }
+
+    let recovered = false;
+    const data: CategoryMap = {
+      income: [],
+      expense: []
+    };
+
+    for (const type of ['income', 'expense'] as const) {
+      const rawItems = (parsed as Partial<CategoryMap>)[type];
+      if (!Array.isArray(rawItems)) {
+        recovered = true;
+        continue;
+      }
+
+      const uniqueItems = new Set<string>();
+      for (const item of rawItems) {
+        if (typeof item !== 'string') {
+          recovered = true;
+          continue;
+        }
+
+        const normalized = item.trim();
+        if (!normalized) {
+          recovered = true;
+          continue;
+        }
+
+        if (CATEGORY_PRESETS[type].includes(normalized) || uniqueItems.has(normalized)) {
+          recovered = true;
+          continue;
+        }
+
+        uniqueItems.add(normalized);
+      }
+
+      data[type] = Array.from(uniqueItems);
+    }
+
+    return { data, recovered };
+  } catch {
+    return { data: EMPTY_CUSTOM_CATEGORIES, recovered: true };
   }
 }
 
