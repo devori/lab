@@ -1,14 +1,13 @@
 # Devori Lab Monorepo
 
-Devori Lab의 제품 실험/구현/배포를 위한 **npm workspaces** 기반 모노레포입니다.  
-This is an **npm workspaces** monorepo for experimenting, building, and deploying Devori Lab products.
+Devori Lab의 제품 실험/구현/배포를 위한 **npm workspaces** 기반 모노레포입니다.
 
 ## Repository Layout
 
 ```txt
 lab/
 ├─ apps/                  # Deployable product apps
-│  └─ lab-web/            # First product: Next.js web app
+│  └─ lab-web/            # Next.js app (가계부 MVP)
 ├─ packages/              # Shared code/tooling (when needed)
 ├─ package.json           # Root workspace scripts + workspaces
 └─ package-lock.json      # Lockfile
@@ -17,34 +16,32 @@ lab/
 ## Prerequisites
 
 - Node.js 20+
-- npm (bundled with Node)
+- npm
 
-## Quick Start
+## Run (from repo root)
 
 ```bash
 npm install
 npm run dev
 ```
 
-- `npm run dev` runs `apps/lab-web`.
+- `npm run dev`는 `apps/lab-web`를 실행합니다.
 - 앱 개별 실행: `npm --workspace lab-web run dev`
 
-## Build / Lint / Typecheck
+## Quality Checks (from repo root)
 
 ```bash
-npm run build
 npm run lint
 npm run typecheck
+npm run build
 ```
 
-모든 명령은 루트에서 실행합니다.  
-Run all commands from the repository root.
+## 가계부 MVP 체크리스트
 
-## Vercel Deployment (apps/lab-web)
-
-Vercel은 **Root Directory를 repo root(`.`)** 로 둔 채로도 배포할 수 있게 설정해놨습니다 (`vercel.json`).
-
-- Framework: Next.js
-- Install Command: `npm install`
-- Build Command: `cd apps/lab-web && npm run build`
-- Output Directory: `apps/lab-web/.next`
+- [x] 거래 CRUD: 날짜, 구분(수입/지출), 카테고리, 금액, 메모
+- [x] 요약 카드: 이번 달 수입/지출/잔액
+- [x] 월별 목록 + 간단 필터(전체/수입/지출)
+- [x] 카테고리 프리셋 + 선택 입력
+- [x] 브라우저 `localStorage` 로컬 저장
+- [x] 한국어 우선 UI 카피
+- [x] 루트 기준 `lint/typecheck/build` 검증
