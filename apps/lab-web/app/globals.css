@@ -121,6 +121,70 @@ select {
   color: var(--brand-dark);
 }
 
+.budget-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 10px;
+  align-items: end;
+}
+
+.budget-grid label {
+  display: grid;
+  gap: 6px;
+  font-size: 0.92rem;
+}
+
+.budget-grid input {
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 9px 10px;
+  background: #fff;
+}
+
+.budget-actions {
+  grid-column: auto;
+}
+
+.budget-summary {
+  margin-top: 12px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 12px;
+  background: #fff;
+}
+
+.budget-summary p {
+  margin: 0;
+}
+
+.budget-summary p + p {
+  margin-top: 8px;
+  color: var(--muted);
+}
+
+.budget-summary strong {
+  margin-left: 8px;
+}
+
+.budget-warning {
+  color: var(--expense) !important;
+  font-weight: 700;
+}
+
+.budget-progress-track {
+  margin-top: 10px;
+  height: 10px;
+  border-radius: 999px;
+  background: #ebe7dc;
+  overflow: hidden;
+}
+
+.budget-progress-fill {
+  height: 100%;
+  border-radius: 999px;
+  background: linear-gradient(90deg, #0c8a5f 0%, #d95f02 100%);
+}
+
 .panel {
   border: 1px solid var(--line);
   border-radius: 16px;
@@ -414,6 +478,10 @@ button.danger:hover {
   }
 
   .tx-form {
+    grid-template-columns: 1fr;
+  }
+
+  .budget-grid {
     grid-template-columns: 1fr;
   }
 

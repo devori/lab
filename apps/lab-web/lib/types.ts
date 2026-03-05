@@ -18,3 +18,13 @@ export interface MonthlySummary {
   expense: number;
   balance: number;
 }
+
+export type MonthlyBudgetMap = Record<string, number>;
+
+export interface MonthlyBudgetProgress {
+  budget: number;
+  spent: number;
+  remaining: number;
+  isOverBudget: boolean;
+  progressRate: number;
+}

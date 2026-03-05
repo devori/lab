@@ -2,21 +2,24 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import {
+  BUDGET_STORAGE_KEY,
   CATEGORY_PRESETS,
   formatKRW,
   getCurrentMonthKey,
+  getMonthlyBudgetProgress,
   getMonthlyCategorySummary,
   getMonthlySummary,
   getTodayDate,
   getTypeLabel,
   mergeTransactions,
+  parseMonthlyBudgets,
   parseImportTransactions,
   parseTransactions,
   sortTransactions,
   STORAGE_KEY,
   validateTransactionForm
 } from '@/lib/ledger';
-import type { Transaction, TransactionFilter, TransactionType } from '@/lib/types';
+import type { MonthlyBudgetMap, Transaction, TransactionFilter, TransactionType } from '@/lib/types';
 
 interface TransactionFormState {
   date: string;
@@ -77,7 +80,15 @@ export default function HomePage() {
 
     return parseTransactions(window.localStorage.getItem(STORAGE_KEY));
   });
+  const [monthlyBudgets, setMonthlyBudgets] = useState<MonthlyBudgetMap>(() => {
+    if (typeof window === 'undefined') {
+      return {};
+    }
+
+    return parseMonthlyBudgets(window.localStorage.getItem(BUDGET_STORAGE_KEY));
+  });
   const [selectedMonth, setSelectedMonth] = useState<string>(getCurrentMonthKey());
+  const [budgetDrafts, setBudgetDrafts] = useState<Record<string, string>>({});
   const [filter, setFilter] = useState<TransactionFilter>('all');
   const [editingId, setEditingId] = useState<string | null>(null);
   const [formState, setFormState] = useState<TransactionFormState>(createEmptyForm('expense'));
@@ -95,6 +106,10 @@ export default function HomePage() {
   }, [transactions]);
 
   useEffect(() => {
+    window.localStorage.setItem(BUDGET_STORAGE_KEY, JSON.stringify(monthlyBudgets));
+  }, [monthlyBudgets]);
+
+  useEffect(() => {
     if (!notice) {
       return;
     }
@@ -106,6 +121,16 @@ export default function HomePage() {
   const thisMonthSummary = useMemo(
     () => getMonthlySummary(transactions, thisMonthKey),
     [transactions, thisMonthKey]
+  );
+  const selectedMonthSummary = useMemo(
+    () => getMonthlySummary(transactions, selectedMonth),
+    [transactions, selectedMonth]
+  );
+  const selectedMonthBudget = monthlyBudgets[selectedMonth] ?? 0;
+  const budgetInput = budgetDrafts[selectedMonth] ?? (selectedMonthBudget > 0 ? String(selectedMonthBudget) : '');
+  const budgetProgress = useMemo(
+    () => getMonthlyBudgetProgress(selectedMonthSummary, selectedMonthBudget),
+    [selectedMonthSummary, selectedMonthBudget]
   );
 
   const monthlyTransactions = useMemo(() => {
@@ -273,6 +298,50 @@ export default function HomePage() {
     setNotice({ tone: 'success', message: `${template.label} 템플릿을 오늘 내역으로 추가했습니다.` });
   };
 
+  const duplicateTransaction = (transaction: Transaction) => {
+    const now = new Date().toISOString();
+    const duplicated: Transaction = {
+      ...transaction,
+      id: createId(),
+      createdAt: now,
+      updatedAt: now
+    };
+
+    setTransactions((prev) => [duplicated, ...prev].sort(sortTransactions));
+    setNotice({ tone: 'success', message: '내역을 복제했습니다.' });
+  };
+
+  const saveMonthlyBudget = () => {
+    const parsed = Number(budgetInput);
+    if (!Number.isFinite(parsed) || parsed <= 0) {
+      setNotice({ tone: 'error', message: '예산은 1원 이상의 숫자로 입력하세요.' });
+      return;
+    }
+
+    const normalized = Math.floor(parsed);
+    setMonthlyBudgets((prev) => ({ ...prev, [selectedMonth]: normalized }));
+    setBudgetDrafts((prev) => ({ ...prev, [selectedMonth]: String(normalized) }));
+    setNotice({ tone: 'success', message: `${selectedMonth} 예산을 저장했습니다.` });
+  };
+
+  const clearMonthlyBudget = () => {
+    if (!(selectedMonth in monthlyBudgets)) {
+      return;
+    }
+
+    setMonthlyBudgets((prev) => {
+      const next = { ...prev };
+      delete next[selectedMonth];
+      return next;
+    });
+    setBudgetDrafts((prev) => {
+      const next = { ...prev };
+      delete next[selectedMonth];
+      return next;
+    });
+    setNotice({ tone: 'success', message: `${selectedMonth} 예산을 삭제했습니다.` });
+  };
+
   const exportTransactions = () => {
     const payload = JSON.stringify(transactions, null, 2);
     const blob = new Blob([payload], { type: 'application/json' });
@@ -322,7 +391,9 @@ export default function HomePage() {
     }
 
     setTransactions([]);
+    setMonthlyBudgets({});
     setSelectedMonth(getCurrentMonthKey());
+    setBudgetDrafts({});
     setFilter('all');
     resetForm('expense');
     setNotice({ tone: 'success', message: '모든 데이터를 초기화했습니다.' });
@@ -357,6 +428,55 @@ export default function HomePage() {
         </article>
       </section>
 
+      <section className="panel" aria-label="월별 예산">
+        <h2>월별 예산 ({selectedMonth})</h2>
+        <div className="budget-grid">
+          <label htmlFor="budget-input">
+            예산 입력
+            <input
+              id="budget-input"
+              type="number"
+              min="1"
+              step="1"
+              inputMode="numeric"
+              value={budgetInput}
+              onChange={(event) =>
+                setBudgetDrafts((prev) => ({ ...prev, [selectedMonth]: event.target.value }))
+              }
+              placeholder="예: 1200000"
+            />
+          </label>
+          <div className="button-row budget-actions">
+            <button type="button" onClick={saveMonthlyBudget}>
+              예산 저장
+            </button>
+            <button type="button" className="ghost" onClick={clearMonthlyBudget}>
+              예산 삭제
+            </button>
+          </div>
+        </div>
+
+        <div className="budget-summary">
+          <p>
+            <span>지출 / 예산</span>
+            <strong>
+              {formatKRW(budgetProgress.spent)} /{' '}
+              {budgetProgress.budget > 0 ? formatKRW(budgetProgress.budget) : '미설정'}
+            </strong>
+          </p>
+          <p className={budgetProgress.isOverBudget ? 'budget-warning' : ''}>
+            {budgetProgress.budget === 0
+              ? '이번 달 예산을 설정하면 진행률을 볼 수 있습니다.'
+              : budgetProgress.isOverBudget
+                ? `예산 초과 ${formatKRW(Math.abs(budgetProgress.remaining))}`
+                : `남은 예산 ${formatKRW(budgetProgress.remaining)}`}
+          </p>
+          <div className="budget-progress-track" aria-hidden="true">
+            <div className="budget-progress-fill" style={{ width: `${budgetProgress.progressRate}%` }} />
+          </div>
+        </div>
+      </section>
+
       <section className="panel">
         <h2>데이터 관리</h2>
         <div className="data-tools">
@@ -364,9 +484,10 @@ export default function HomePage() {
             JSON 내보내기
           </button>
 
-          <label className="file-picker">
+          <label htmlFor="import-json-file" className="file-picker">
             JSON 가져오기
             <input
+              id="import-json-file"
               type="file"
               accept="application/json,.json"
               onChange={(event) => {
@@ -376,9 +497,13 @@ export default function HomePage() {
             />
           </label>
 
-          <label>
+          <label htmlFor="import-mode">
             가져오기 방식
-            <select value={importMode} onChange={(event) => setImportMode(event.target.value as ImportMode)}>
+            <select
+              id="import-mode"
+              value={importMode}
+              onChange={(event) => setImportMode(event.target.value as ImportMode)}
+            >
               <option value="merge">기존 데이터와 병합</option>
               <option value="replace">기존 데이터 교체</option>
             </select>
@@ -407,6 +532,7 @@ export default function HomePage() {
                 key={template.id}
                 type="button"
                 className="ghost template-button"
+                aria-label={`${template.label} 템플릿 추가`}
                 onClick={() => applyQuickTemplate(template)}
               >
                 {template.label} {formatKRW(template.amount)}
@@ -415,9 +541,10 @@ export default function HomePage() {
           </div>
         </div>
         <form className="tx-form" onSubmit={handleSubmit} noValidate>
-          <label>
+          <label htmlFor="tx-date">
             날짜
             <input
+              id="tx-date"
               type="date"
               value={formState.date}
               onChange={(event) => {
@@ -437,9 +564,10 @@ export default function HomePage() {
             {formErrors.date ? <span className="field-error">{formErrors.date}</span> : null}
           </label>
 
-          <label>
+          <label htmlFor="tx-type">
             구분
             <select
+              id="tx-type"
               value={formState.type}
               onChange={(event) => handleTypeChange(event.target.value as TransactionType)}
             >
@@ -448,9 +576,10 @@ export default function HomePage() {
             </select>
           </label>
 
-          <label>
+          <label htmlFor="tx-category">
             카테고리
             <select
+              id="tx-category"
               value={formState.category}
               onChange={(event) => {
                 const category = event.target.value;
@@ -474,9 +603,10 @@ export default function HomePage() {
             {formErrors.category ? <span className="field-error">{formErrors.category}</span> : null}
           </label>
 
-          <label>
+          <label htmlFor="tx-amount">
             금액
             <input
+              id="tx-amount"
               type="number"
               min="1"
               step="1"
@@ -500,9 +630,10 @@ export default function HomePage() {
             {formErrors.amount ? <span className="field-error">{formErrors.amount}</span> : null}
           </label>
 
-          <label className="memo-row">
+          <label htmlFor="tx-memo" className="memo-row">
             메모
             <input
+              id="tx-memo"
               type="text"
               maxLength={80}
               value={formState.memo}
@@ -526,26 +657,28 @@ export default function HomePage() {
         <div className="list-topbar">
           <h2>월별 내역</h2>
           <div className="list-controls">
-            <label>
+            <label htmlFor="month-select">
               월 선택
               <input
+                id="month-select"
                 type="month"
                 value={selectedMonth}
                 onChange={(event) => setSelectedMonth(event.target.value)}
               />
             </label>
-            <label>
+            <label htmlFor="month-search">
               검색
               <input
+                id="month-search"
                 type="text"
                 value={searchText}
                 onChange={(event) => setSearchText(event.target.value)}
                 placeholder="카테고리/메모 포함 검색"
               />
             </label>
-            <label>
+            <label htmlFor="month-sort">
               정렬
-              <select value={sortMode} onChange={(event) => setSortMode(event.target.value as MonthlySort)}>
+              <select id="month-sort" value={sortMode} onChange={(event) => setSortMode(event.target.value as MonthlySort)}>
                 <option value="date_desc">날짜 최신순</option>
                 <option value="date_asc">날짜 오래된순</option>
                 <option value="amount_desc">금액 큰순</option>
@@ -600,10 +733,28 @@ export default function HomePage() {
                   {item.memo ? <p className="tx-memo">{item.memo}</p> : null}
                 </div>
                 <div className="tx-actions">
-                  <button type="button" className="ghost" onClick={() => startEdit(item)}>
+                  <button
+                    type="button"
+                    className="ghost"
+                    aria-label={`${item.date} ${item.category} 내역 수정`}
+                    onClick={() => startEdit(item)}
+                  >
                     수정
                   </button>
-                  <button type="button" className="danger" onClick={() => removeTransaction(item.id)}>
+                  <button
+                    type="button"
+                    className="ghost"
+                    aria-label={`${item.date} ${item.category} 내역 복제`}
+                    onClick={() => duplicateTransaction(item)}
+                  >
+                    복제
+                  </button>
+                  <button
+                    type="button"
+                    className="danger"
+                    aria-label={`${item.date} ${item.category} 내역 삭제`}
+                    onClick={() => removeTransaction(item.id)}
+                  >
                     삭제
                   </button>
                 </div>

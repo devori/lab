@@ -1,6 +1,13 @@
-import type { MonthlySummary, Transaction, TransactionType } from '@/lib/types';
+import type {
+  MonthlyBudgetMap,
+  MonthlyBudgetProgress,
+  MonthlySummary,
+  Transaction,
+  TransactionType
+} from '@/lib/types';
 
 export const STORAGE_KEY = 'lab-web-household-ledger-v1';
+export const BUDGET_STORAGE_KEY = 'lab-web-household-ledger-budget-v1';
 
 export const CATEGORY_PRESETS: Record<TransactionType, string[]> = {
   income: ['급여', '부수입', '이자', '환급', '용돈', '기타수입'],
@@ -41,6 +48,28 @@ export function parseTransactions(raw: string | null): Transaction[] {
   }
 }
 
+export function parseMonthlyBudgets(raw: string | null): MonthlyBudgetMap {
+  if (!raw) {
+    return {};
+  }
+
+  try {
+    const parsed: unknown = JSON.parse(raw);
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+      return {};
+    }
+
+    return Object.entries(parsed).reduce<MonthlyBudgetMap>((acc, [monthKey, value]) => {
+      if (/^\d{4}-\d{2}$/.test(monthKey) && typeof value === 'number' && Number.isFinite(value) && value > 0) {
+        acc[monthKey] = Math.floor(value);
+      }
+      return acc;
+    }, {});
+  } catch {
+    return {};
+  }
+}
+
 export function isInMonth(date: string, monthKey: string): boolean {
   return date.slice(0, 7) === monthKey;
 }
@@ -61,6 +90,21 @@ export function getMonthlySummary(transactions: Transaction[], monthKey: string)
 
     return acc;
   }, { ...EMPTY_SUMMARY });
+}
+
+export function getMonthlyBudgetProgress(summary: MonthlySummary, budget: number): MonthlyBudgetProgress {
+  const safeBudget = Math.max(0, Math.floor(budget));
+  const spent = summary.expense;
+  const remaining = safeBudget - spent;
+  const progressRate = safeBudget > 0 ? Math.min(100, (spent / safeBudget) * 100) : 0;
+
+  return {
+    budget: safeBudget,
+    spent,
+    remaining,
+    isOverBudget: safeBudget > 0 && spent > safeBudget,
+    progressRate
+  };
 }
 
 export function formatKRW(value: number): string {
