@@ -15,6 +15,7 @@ import {
   parseMonthlyBudgets,
   parseImportTransactions,
   parseTransactions,
+  shiftMonthKey,
   sortTransactions,
   STORAGE_KEY,
   validateTransactionForm
@@ -46,6 +47,20 @@ interface QuickTemplate {
   category: string;
   amount: number;
   memo: string;
+}
+
+interface UndoState {
+  message: string;
+  transactions: Transaction[];
+  monthlyBudgets: MonthlyBudgetMap;
+  selectedMonth: string;
+  budgetDrafts: Record<string, string>;
+  filter: TransactionFilter;
+  formState: TransactionFormState;
+  formErrors: FormErrors;
+  editingId: string | null;
+  searchText: string;
+  sortMode: MonthlySort;
 }
 
 const QUICK_TEMPLATES: QuickTemplate[] = [
@@ -98,6 +113,7 @@ export default function HomePage() {
   const [importMode, setImportMode] = useState<ImportMode>('merge');
   const [searchText, setSearchText] = useState<string>('');
   const [sortMode, setSortMode] = useState<MonthlySort>('date_desc');
+  const [undoState, setUndoState] = useState<UndoState | null>(null);
 
   const thisMonthKey = getCurrentMonthKey();
 
@@ -117,6 +133,36 @@ export default function HomePage() {
     const timer = window.setTimeout(() => setNotice(null), 2200);
     return () => window.clearTimeout(timer);
   }, [notice]);
+
+  useEffect(() => {
+    if (!undoState) {
+      return;
+    }
+
+    const timer = window.setTimeout(() => setUndoState(null), 7000);
+    return () => window.clearTimeout(timer);
+  }, [undoState]);
+
+  useEffect(() => {
+    if (!editingId) {
+      return;
+    }
+
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== 'Escape') {
+        return;
+      }
+
+      event.preventDefault();
+      setFormState(createEmptyForm(formState.type));
+      setFormErrors({});
+      setEditingId(null);
+      setNotice({ tone: 'success', message: '수정 모드를 취소했습니다.' });
+    };
+
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [editingId, formState.type]);
 
   const thisMonthSummary = useMemo(
     () => getMonthlySummary(transactions, thisMonthKey),
@@ -185,6 +231,39 @@ export default function HomePage() {
     setFormState(createEmptyForm(type));
     setFormErrors({});
     setEditingId(null);
+  };
+
+  const captureUndoState = (message: string): UndoState => ({
+    message,
+    transactions: transactions.map((item) => ({ ...item })),
+    monthlyBudgets: { ...monthlyBudgets },
+    selectedMonth,
+    budgetDrafts: { ...budgetDrafts },
+    filter,
+    formState: { ...formState },
+    formErrors: { ...formErrors },
+    editingId,
+    searchText,
+    sortMode
+  });
+
+  const restoreUndoState = () => {
+    if (!undoState) {
+      return;
+    }
+
+    setTransactions(undoState.transactions);
+    setMonthlyBudgets(undoState.monthlyBudgets);
+    setSelectedMonth(undoState.selectedMonth);
+    setBudgetDrafts(undoState.budgetDrafts);
+    setFilter(undoState.filter);
+    setFormState(undoState.formState);
+    setFormErrors(undoState.formErrors);
+    setEditingId(undoState.editingId);
+    setSearchText(undoState.searchText);
+    setSortMode(undoState.sortMode);
+    setUndoState(null);
+    setNotice({ tone: 'success', message: '직전 작업을 되돌렸습니다.' });
   };
 
   const handleTypeChange = (nextType: TransactionType) => {
@@ -274,6 +353,7 @@ export default function HomePage() {
       return;
     }
 
+    setUndoState(captureUndoState('내역을 삭제했습니다. 7초 안에 되돌릴 수 있습니다.'));
     setTransactions((prev) => prev.filter((item) => item.id !== id));
     setNotice({ tone: 'success', message: '내역을 삭제했습니다.' });
     if (editingId === id) {
@@ -329,6 +409,7 @@ export default function HomePage() {
       return;
     }
 
+    setUndoState(captureUndoState(`${selectedMonth} 예산 삭제를 7초 안에 되돌릴 수 있습니다.`));
     setMonthlyBudgets((prev) => {
       const next = { ...prev };
       delete next[selectedMonth];
@@ -386,10 +467,11 @@ export default function HomePage() {
   };
 
   const resetAllData = () => {
-    if (!window.confirm('저장된 모든 거래 데이터를 초기화할까요? 이 작업은 되돌릴 수 없습니다.')) {
+    if (!window.confirm('저장된 모든 거래 데이터를 초기화할까요? 7초 동안 실행 취소할 수 있습니다.')) {
       return;
     }
 
+    setUndoState(captureUndoState('전체 초기화를 실행했습니다. 7초 안에 되돌릴 수 있습니다.'));
     setTransactions([]);
     setMonthlyBudgets({});
     setSelectedMonth(getCurrentMonthKey());
@@ -411,6 +493,14 @@ export default function HomePage() {
 
       <div className="status-area" role="status" aria-live="polite">
         {notice ? <p className={`toast ${notice.tone}`}>{notice.message}</p> : null}
+        {undoState ? (
+          <div className="undo-bar">
+            <p>{undoState.message}</p>
+            <button type="button" className="ghost undo-button" onClick={restoreUndoState}>
+              실행 취소
+            </button>
+          </div>
+        ) : null}
       </div>
 
       <section className="summary-grid" aria-label="이번 달 요약">
@@ -624,6 +714,14 @@ export default function HomePage() {
                   }).amount
                 }));
               }}
+              onKeyDown={(event) => {
+                if (event.key !== 'Enter' || event.nativeEvent.isComposing) {
+                  return;
+                }
+
+                event.preventDefault();
+                event.currentTarget.form?.requestSubmit();
+              }}
               placeholder="예: 15000"
               required
             />
@@ -666,6 +764,22 @@ export default function HomePage() {
                 onChange={(event) => setSelectedMonth(event.target.value)}
               />
             </label>
+            <div className="month-nav" aria-label="월 빠른 이동">
+              <button type="button" className="ghost" onClick={() => setSelectedMonth(shiftMonthKey(selectedMonth, -1))}>
+                이전 달
+              </button>
+              <button
+                type="button"
+                className="ghost"
+                onClick={() => setSelectedMonth(thisMonthKey)}
+                disabled={selectedMonth === thisMonthKey}
+              >
+                이번 달
+              </button>
+              <button type="button" className="ghost" onClick={() => setSelectedMonth(shiftMonthKey(selectedMonth, 1))}>
+                다음 달
+              </button>
+            </div>
             <label htmlFor="month-search">
               검색
               <input

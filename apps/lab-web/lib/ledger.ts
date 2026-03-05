@@ -31,6 +31,22 @@ export function getTodayDate(): string {
   return new Date().toISOString().slice(0, 10);
 }
 
+export function shiftMonthKey(monthKey: string, offset: number): string {
+  const [yearRaw, monthRaw] = monthKey.split('-');
+  const year = Number(yearRaw);
+  const month = Number(monthRaw);
+
+  if (!Number.isInteger(year) || !Number.isInteger(month) || month < 1 || month > 12) {
+    return getCurrentMonthKey();
+  }
+
+  const shifted = new Date(year, month - 1 + offset, 1);
+  const nextYear = shifted.getFullYear();
+  const nextMonth = String(shifted.getMonth() + 1).padStart(2, '0');
+
+  return `${nextYear}-${nextMonth}`;
+}
+
 export function parseTransactions(raw: string | null): Transaction[] {
   if (!raw) {
     return [];
