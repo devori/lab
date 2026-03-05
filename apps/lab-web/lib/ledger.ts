@@ -79,6 +79,103 @@ export function sortTransactions(a: Transaction, b: Transaction): number {
   return b.date.localeCompare(a.date);
 }
 
+export interface CategorySummaryRow {
+  category: string;
+  total: number;
+  percentage: number;
+}
+
+export function validateTransactionForm(
+  transaction: Pick<Transaction, 'date' | 'category' | 'amount'>
+): {
+  date?: string;
+  category?: string;
+  amount?: string;
+} {
+  const errors: {
+    date?: string;
+    category?: string;
+    amount?: string;
+  } = {};
+
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(transaction.date)) {
+    errors.date = '날짜를 올바르게 입력하세요.';
+  }
+
+  if (!transaction.category.trim()) {
+    errors.category = '카테고리를 선택하세요.';
+  }
+
+  if (!Number.isFinite(transaction.amount) || transaction.amount <= 0) {
+    errors.amount = '금액은 1원 이상의 숫자여야 합니다.';
+  }
+
+  return errors;
+}
+
+export function getMonthlyCategorySummary(
+  transactions: Transaction[],
+  monthKey: string,
+  type: TransactionType
+): CategorySummaryRow[] {
+  const categoryTotals = transactions.reduce<Map<string, number>>((acc, item) => {
+    if (item.type !== type || !isInMonth(item.date, monthKey)) {
+      return acc;
+    }
+
+    acc.set(item.category, (acc.get(item.category) ?? 0) + item.amount);
+    return acc;
+  }, new Map());
+
+  const grandTotal = Array.from(categoryTotals.values()).reduce((sum, current) => sum + current, 0);
+
+  return Array.from(categoryTotals.entries())
+    .map(([category, total]) => ({
+      category,
+      total,
+      percentage: grandTotal > 0 ? (total / grandTotal) * 100 : 0
+    }))
+    .sort((a, b) => b.total - a.total);
+}
+
+export function mergeTransactions(existing: Transaction[], incoming: Transaction[]): Transaction[] {
+  const merged = new Map<string, Transaction>();
+
+  for (const item of existing) {
+    merged.set(item.id, item);
+  }
+
+  for (const item of incoming) {
+    const current = merged.get(item.id);
+    if (!current || current.updatedAt <= item.updatedAt) {
+      merged.set(item.id, item);
+    }
+  }
+
+  return Array.from(merged.values()).sort(sortTransactions);
+}
+
+export function parseImportTransactions(raw: string): {
+  items: Transaction[];
+  invalidCount: number;
+} {
+  let parsed: unknown;
+
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    return { items: [], invalidCount: 1 };
+  }
+
+  if (!Array.isArray(parsed)) {
+    return { items: [], invalidCount: 1 };
+  }
+
+  const items = parsed.filter(isValidTransaction).sort(sortTransactions);
+  const invalidCount = parsed.length - items.length;
+  return { items, invalidCount };
+}
+
 function isValidTransaction(value: unknown): value is Transaction {
   if (!value || typeof value !== 'object') {
     return false;
