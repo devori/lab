@@ -186,6 +186,20 @@ select {
   background: #fff;
 }
 
+.template-block {
+  margin-bottom: 12px;
+}
+
+.template-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.template-button {
+  font-size: 0.88rem;
+}
+
 .field-error {
   color: #a22424;
   font-size: 0.82rem;
@@ -239,7 +253,15 @@ button.danger:hover {
   display: flex;
   justify-content: space-between;
   gap: 12px;
-  align-items: end;
+  align-items: flex-end;
+  flex-wrap: wrap;
+}
+
+.list-controls {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+  width: min(100%, 560px);
 }
 
 .list-topbar label {
@@ -248,7 +270,8 @@ button.danger:hover {
   font-size: 0.92rem;
 }
 
-.list-topbar input {
+.list-topbar input,
+.list-topbar select {
   border: 1px solid var(--line);
   border-radius: 10px;
   padding: 7px 10px;
@@ -335,6 +358,15 @@ button.danger:hover {
   color: var(--muted);
 }
 
+.onboarding strong {
+  display: block;
+  color: #374151;
+}
+
+.onboarding p {
+  margin: 7px 0 0;
+}
+
 .category-summary-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -388,6 +420,11 @@ button.danger:hover {
   .list-topbar {
     flex-direction: column;
     align-items: stretch;
+  }
+
+  .list-controls {
+    grid-template-columns: 1fr;
+    width: 100%;
   }
 
   .tx-item {

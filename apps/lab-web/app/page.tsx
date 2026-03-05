@@ -34,6 +34,22 @@ interface FormErrors {
 
 type NoticeTone = 'success' | 'error';
 type ImportMode = 'merge' | 'replace';
+type MonthlySort = 'date_desc' | 'date_asc' | 'amount_desc' | 'amount_asc';
+
+interface QuickTemplate {
+  id: string;
+  label: string;
+  type: TransactionType;
+  category: string;
+  amount: number;
+  memo: string;
+}
+
+const QUICK_TEMPLATES: QuickTemplate[] = [
+  { id: 'salary', label: '월급', type: 'income', category: '급여', amount: 3000000, memo: '월급' },
+  { id: 'rent', label: '월세', type: 'expense', category: '주거', amount: 800000, memo: '월세' },
+  { id: 'phone', label: '통신비', type: 'expense', category: '통신비', amount: 70000, memo: '통신비' }
+];
 
 function createEmptyForm(type: TransactionType = 'expense'): TransactionFormState {
   return {
@@ -69,6 +85,8 @@ export default function HomePage() {
   const [notice, setNotice] = useState<{ tone: NoticeTone; message: string } | null>(null);
   const [importFile, setImportFile] = useState<File | null>(null);
   const [importMode, setImportMode] = useState<ImportMode>('merge');
+  const [searchText, setSearchText] = useState<string>('');
+  const [sortMode, setSortMode] = useState<MonthlySort>('date_desc');
 
   const thisMonthKey = getCurrentMonthKey();
 
@@ -91,10 +109,42 @@ export default function HomePage() {
   );
 
   const monthlyTransactions = useMemo(() => {
-    return transactions
+    const normalizedSearch = searchText.trim().toLowerCase();
+    const filtered = transactions
       .filter((item) => item.date.slice(0, 7) === selectedMonth)
-      .filter((item) => (filter === 'all' ? true : item.type === filter));
-  }, [transactions, selectedMonth, filter]);
+      .filter((item) => (filter === 'all' ? true : item.type === filter))
+      .filter((item) => {
+        if (!normalizedSearch) {
+          return true;
+        }
+
+        const memo = item.memo.toLowerCase();
+        const category = item.category.toLowerCase();
+        return memo.includes(normalizedSearch) || category.includes(normalizedSearch);
+      });
+
+    return [...filtered].sort((a, b) => {
+      if (sortMode === 'date_desc') {
+        return sortTransactions(a, b);
+      }
+
+      if (sortMode === 'date_asc') {
+        return sortTransactions(b, a);
+      }
+
+      if (sortMode === 'amount_desc') {
+        if (b.amount === a.amount) {
+          return sortTransactions(a, b);
+        }
+        return b.amount - a.amount;
+      }
+
+      if (a.amount === b.amount) {
+        return sortTransactions(a, b);
+      }
+      return a.amount - b.amount;
+    });
+  }, [transactions, selectedMonth, filter, searchText, sortMode]);
 
   const monthlyIncomeByCategory = useMemo(
     () => getMonthlyCategorySummary(transactions, selectedMonth, 'income'),
@@ -204,6 +254,23 @@ export default function HomePage() {
     if (editingId === id) {
       resetForm();
     }
+  };
+
+  const applyQuickTemplate = (template: QuickTemplate) => {
+    const now = new Date().toISOString();
+    const newTransaction: Transaction = {
+      id: createId(),
+      date: getTodayDate(),
+      type: template.type,
+      category: template.category,
+      amount: template.amount,
+      memo: template.memo,
+      createdAt: now,
+      updatedAt: now
+    };
+
+    setTransactions((prev) => [newTransaction, ...prev].sort(sortTransactions));
+    setNotice({ tone: 'success', message: `${template.label} 템플릿을 오늘 내역으로 추가했습니다.` });
   };
 
   const exportTransactions = () => {
@@ -332,6 +399,21 @@ export default function HomePage() {
 
       <section className="panel">
         <h2>{editingId ? '내역 수정' : '내역 추가'}</h2>
+        <div className="template-block">
+          <p className="hint">반복 지출/수입은 템플릿으로 오늘 날짜에 1클릭 추가할 수 있습니다.</p>
+          <div className="template-grid">
+            {QUICK_TEMPLATES.map((template) => (
+              <button
+                key={template.id}
+                type="button"
+                className="ghost template-button"
+                onClick={() => applyQuickTemplate(template)}
+              >
+                {template.label} {formatKRW(template.amount)}
+              </button>
+            ))}
+          </div>
+        </div>
         <form className="tx-form" onSubmit={handleSubmit} noValidate>
           <label>
             날짜
@@ -443,14 +525,34 @@ export default function HomePage() {
       <section className="panel">
         <div className="list-topbar">
           <h2>월별 내역</h2>
-          <label>
-            월 선택
-            <input
-              type="month"
-              value={selectedMonth}
-              onChange={(event) => setSelectedMonth(event.target.value)}
-            />
-          </label>
+          <div className="list-controls">
+            <label>
+              월 선택
+              <input
+                type="month"
+                value={selectedMonth}
+                onChange={(event) => setSelectedMonth(event.target.value)}
+              />
+            </label>
+            <label>
+              검색
+              <input
+                type="text"
+                value={searchText}
+                onChange={(event) => setSearchText(event.target.value)}
+                placeholder="카테고리/메모 포함 검색"
+              />
+            </label>
+            <label>
+              정렬
+              <select value={sortMode} onChange={(event) => setSortMode(event.target.value as MonthlySort)}>
+                <option value="date_desc">날짜 최신순</option>
+                <option value="date_asc">날짜 오래된순</option>
+                <option value="amount_desc">금액 큰순</option>
+                <option value="amount_asc">금액 작은순</option>
+              </select>
+            </label>
+          </div>
         </div>
 
         <div className="filter-tabs" role="tablist" aria-label="수입 지출 필터">
@@ -472,7 +574,16 @@ export default function HomePage() {
 
         <ul className="tx-list">
           {monthlyTransactions.length === 0 ? (
-            <li className="empty">조건에 맞는 내역이 없습니다.</li>
+            transactions.length === 0 ? (
+              <li className="empty onboarding">
+                <strong>처음이시라면 이렇게 시작해 보세요.</strong>
+                <p>1) 위 템플릿 버튼으로 월급/월세/통신비를 먼저 등록하세요.</p>
+                <p>2) 내역 추가 폼에서 자주 쓰는 지출을 직접 입력하세요.</p>
+                <p>3) 월별 내역 검색으로 원하는 항목을 빠르게 찾을 수 있습니다.</p>
+              </li>
+            ) : (
+              <li className="empty">조건에 맞는 내역이 없습니다.</li>
+            )
           ) : (
             monthlyTransactions.map((item) => (
               <li key={item.id} className="tx-item">

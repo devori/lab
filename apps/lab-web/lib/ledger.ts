@@ -4,7 +4,7 @@ export const STORAGE_KEY = 'lab-web-household-ledger-v1';
 
 export const CATEGORY_PRESETS: Record<TransactionType, string[]> = {
   income: ['급여', '부수입', '이자', '환급', '용돈', '기타수입'],
-  expense: ['식비', '교통', '주거', '쇼핑', '의료', '문화', '교육', '기타지출']
+  expense: ['식비', '교통', '주거', '통신비', '쇼핑', '의료', '문화', '교육', '기타지출']
 };
 
 export const EMPTY_SUMMARY: MonthlySummary = {
