@@ -7,7 +7,7 @@ import {
   parseTransactionsWithRecovery,
   STORAGE_KEY
 } from '@/lib/ledger';
-import type { LedgerApiResponse, LedgerState } from '@/lib/ledger-api';
+import type { LedgerApiResponse, LedgerRemoteStatus, LedgerState } from '@/lib/ledger-api';
 import type { CategoryMap, MonthlyBudgetMap, Transaction } from '@/lib/types';
 
 export type LedgerStorageMode = 'local' | 'remote';
@@ -151,6 +151,10 @@ export class RemoteLedgerStorageAdapter implements LedgerStorageAdapter {
       body: JSON.stringify({ customCategories })
     });
   }
+}
+
+export async function fetchRemoteLedgerStatus(): Promise<LedgerRemoteStatus> {
+  return requestLedgerApi<LedgerRemoteStatus>('status');
 }
 
 export function createDefaultLedgerStorageAdapter(): LedgerStorageAdapter {

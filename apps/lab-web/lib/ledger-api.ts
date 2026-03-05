@@ -35,3 +35,8 @@ export interface LedgerState {
   monthlyBudgets: MonthlyBudgetMap;
   customCategories: CategoryMap;
 }
+
+export interface LedgerRemoteStatus {
+  configured: boolean;
+  missingEnv: string[];
+}

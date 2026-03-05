@@ -21,6 +21,7 @@ import {
 import {
   createDefaultLedgerStorageAdapter,
   createRemoteLedgerStorageAdapter,
+  fetchRemoteLedgerStatus,
   loadLedgerFromLocalStorage
 } from '@/lib/ledger-storage';
 import type { CategoryMap, MonthlyBudgetMap, Transaction, TransactionFilter, TransactionType } from '@/lib/types';
@@ -42,6 +43,7 @@ interface FormErrors {
 type NoticeTone = 'success' | 'error';
 type ImportMode = 'merge' | 'replace';
 type MonthlySort = 'date_desc' | 'date_asc' | 'amount_desc' | 'amount_asc';
+type ManualSyncAction = 'pull' | 'push' | null;
 
 interface QuickTemplate {
   id: string;
@@ -141,8 +143,48 @@ export default function HomePage() {
   const [undoState, setUndoState] = useState<UndoState | null>(null);
   const [storageMode, setStorageMode] = useState<'local' | 'remote'>('local');
   const [remoteProbeComplete, setRemoteProbeComplete] = useState(false);
+  const [manualSyncAction, setManualSyncAction] = useState<ManualSyncAction>(null);
+  const [remoteStatus, setRemoteStatus] = useState<{
+    loading: boolean;
+    configured: boolean;
+    missingEnv: string[];
+  }>({
+    loading: true,
+    configured: false,
+    missingEnv: []
+  });
 
   const thisMonthKey = getCurrentMonthKey();
+
+  const buildMissingEnvNotice = useCallback((missingEnv: string[]) => {
+    if (missingEnv.length === 0) {
+      return 'Google Sheets 설정이 없어 원격 동기화를 사용할 수 없습니다.';
+    }
+
+    return `Google Sheets 설정 누락(${missingEnv.join(', ')})으로 원격 동기화를 사용할 수 없습니다.`;
+  }, []);
+
+  const refreshRemoteStatus = useCallback(async () => {
+    try {
+      const status = await fetchRemoteLedgerStatus();
+      setRemoteStatus({
+        loading: false,
+        configured: status.configured,
+        missingEnv: status.missingEnv
+      });
+      return status;
+    } catch {
+      setRemoteStatus({
+        loading: false,
+        configured: false,
+        missingEnv: []
+      });
+      return {
+        configured: false,
+        missingEnv: []
+      };
+    }
+  }, []);
 
   useEffect(() => {
     void localAdapter.saveTransactions(transactions);
@@ -155,6 +197,10 @@ export default function HomePage() {
   useEffect(() => {
     void localAdapter.saveCustomCategories(customCategories);
   }, [customCategories, localAdapter]);
+
+  useEffect(() => {
+    void refreshRemoteStatus();
+  }, [refreshRemoteStatus]);
 
   useEffect(() => {
     let cancelled = false;
@@ -175,12 +221,16 @@ export default function HomePage() {
           return;
         }
 
+        const missingEnv =
+          typeof error === 'object' && error !== null && 'missingEnv' in error && Array.isArray(error.missingEnv)
+            ? error.missingEnv.filter((item): item is string => typeof item === 'string')
+            : [];
         const fallbackMessage =
           typeof error === 'object' &&
           error !== null &&
           'code' in error &&
           error.code === 'SHEETS_CONFIG_MISSING'
-            ? 'Google Sheets 설정이 없어 로컬 저장 모드로 실행 중입니다.'
+            ? buildMissingEnvNotice(missingEnv)
             : '원격 저장소 연결에 실패해 로컬 저장 모드로 전환했습니다.';
         setNotice({ tone: 'error', message: fallbackMessage });
         setStorageMode('local');
@@ -196,19 +246,37 @@ export default function HomePage() {
     return () => {
       cancelled = true;
     };
-  }, [remoteAdapter]);
+  }, [buildMissingEnvNotice, remoteAdapter]);
 
-  const handleRemoteSyncError = useCallback(() => {
-    setStorageMode('local');
-    setNotice({ tone: 'error', message: '원격 저장 동기화가 중단되어 로컬 모드로 전환했습니다.' });
-  }, []);
+  const handleRemoteSyncError = useCallback(
+    (error?: unknown) => {
+      if (
+        typeof error === 'object' &&
+        error !== null &&
+        'code' in error &&
+        error.code === 'SHEETS_CONFIG_MISSING'
+      ) {
+        const missingEnv =
+          'missingEnv' in error && Array.isArray(error.missingEnv)
+            ? error.missingEnv.filter((item): item is string => typeof item === 'string')
+            : [];
+        setStorageMode('local');
+        setNotice({ tone: 'error', message: buildMissingEnvNotice(missingEnv) });
+        return;
+      }
+
+      setStorageMode('local');
+      setNotice({ tone: 'error', message: '원격 저장 동기화가 중단되어 로컬 모드로 전환했습니다.' });
+    },
+    [buildMissingEnvNotice]
+  );
 
   useEffect(() => {
     if (!remoteProbeComplete || storageMode !== 'remote') {
       return;
     }
 
-    remoteAdapter.saveTransactions(transactions).catch(() => handleRemoteSyncError());
+    remoteAdapter.saveTransactions(transactions).catch((error) => handleRemoteSyncError(error));
   }, [handleRemoteSyncError, remoteAdapter, remoteProbeComplete, storageMode, transactions]);
 
   useEffect(() => {
@@ -216,7 +284,7 @@ export default function HomePage() {
       return;
     }
 
-    remoteAdapter.saveMonthlyBudgets(monthlyBudgets).catch(() => handleRemoteSyncError());
+    remoteAdapter.saveMonthlyBudgets(monthlyBudgets).catch((error) => handleRemoteSyncError(error));
   }, [handleRemoteSyncError, monthlyBudgets, remoteAdapter, remoteProbeComplete, storageMode]);
 
   useEffect(() => {
@@ -224,7 +292,7 @@ export default function HomePage() {
       return;
     }
 
-    remoteAdapter.saveCustomCategories(customCategories).catch(() => handleRemoteSyncError());
+    remoteAdapter.saveCustomCategories(customCategories).catch((error) => handleRemoteSyncError(error));
   }, [customCategories, handleRemoteSyncError, remoteAdapter, remoteProbeComplete, storageMode]);
 
   useEffect(() => {
@@ -722,6 +790,55 @@ export default function HomePage() {
     return baseOptions;
   }, [categoryOptionsByType, formState.type, formState.category]);
 
+  const syncFromRemote = async () => {
+    setManualSyncAction('pull');
+
+    try {
+      const status = await refreshRemoteStatus();
+      if (!status.configured) {
+        setStorageMode('local');
+        setNotice({ tone: 'error', message: buildMissingEnvNotice(status.missingEnv) });
+        return;
+      }
+
+      const loaded = await remoteAdapter.load();
+      setTransactions(loaded.data.transactions);
+      setMonthlyBudgets(loaded.data.monthlyBudgets);
+      setCustomCategories(loaded.data.customCategories);
+      setStorageMode('remote');
+      setNotice({ tone: 'success', message: '원격 최신 데이터를 다시 불러왔습니다.' });
+    } catch (error) {
+      handleRemoteSyncError(error);
+    } finally {
+      setManualSyncAction(null);
+    }
+  };
+
+  const syncToRemote = async () => {
+    setManualSyncAction('push');
+
+    try {
+      const status = await refreshRemoteStatus();
+      if (!status.configured) {
+        setStorageMode('local');
+        setNotice({ tone: 'error', message: buildMissingEnvNotice(status.missingEnv) });
+        return;
+      }
+
+      await Promise.all([
+        remoteAdapter.saveTransactions(transactions),
+        remoteAdapter.saveMonthlyBudgets(monthlyBudgets),
+        remoteAdapter.saveCustomCategories(customCategories)
+      ]);
+      setStorageMode('remote');
+      setNotice({ tone: 'success', message: '현재 데이터를 원격 저장소에 반영했습니다.' });
+    } catch (error) {
+      handleRemoteSyncError(error);
+    } finally {
+      setManualSyncAction(null);
+    }
+  };
+
   return (
     <main className="ledger-page">
       <section className="header-block">
@@ -812,6 +929,33 @@ export default function HomePage() {
       <section className="panel">
         <h2>데이터 관리</h2>
         <p className="hint">저장 모드: {storageMode === 'remote' ? 'Google Sheets (원격)' : '브라우저 로컬'}</p>
+        <article className="remote-ready-panel" aria-label="원격 모드 준비 상태">
+          <div className="remote-ready-head">
+            <h3>원격 모드 준비 상태</h3>
+            <span className={`remote-ready-badge ${remoteStatus.configured ? 'ok' : 'warn'}`}>
+              {remoteStatus.loading ? '확인 중...' : remoteStatus.configured ? '구성 완료' : '미구성'}
+            </span>
+          </div>
+          <p className="hint">
+            서버 보고: {remoteStatus.loading ? 'Google Sheets 설정 확인 중' : remoteStatus.configured ? 'Google Sheets 설정됨' : 'Google Sheets 미설정'}
+          </p>
+          <ul className="remote-ready-list">
+            <li>Vercel 환경변수 3종 설정: `GOOGLE_SERVICE_ACCOUNT_EMAIL`, `GOOGLE_PRIVATE_KEY`, `GOOGLE_SHEET_ID`</li>
+            <li>가계부 Google Sheet를 서비스 계정 이메일에 편집 권한으로 공유</li>
+          </ul>
+          {remoteStatus.missingEnv.length > 0 ? (
+            <p className="hint">누락된 환경변수: {remoteStatus.missingEnv.join(', ')}</p>
+          ) : null}
+          <div className="button-row remote-sync-actions">
+            <button type="button" className="ghost" onClick={syncFromRemote} disabled={manualSyncAction !== null}>
+              {manualSyncAction === 'pull' ? '불러오는 중...' : '원격에서 다시 불러오기'}
+            </button>
+            <button type="button" onClick={syncToRemote} disabled={manualSyncAction !== null}>
+              {manualSyncAction === 'push' ? '저장 중...' : '지금 원격에 저장'}
+            </button>
+          </div>
+          <p className="hint">충돌 처리 정책: 마지막으로 저장한 데이터가 원격 기준으로 유지됩니다(Last write wins).</p>
+        </article>
         <div className="data-tools">
           <button type="button" onClick={exportTransactions}>
             JSON 내보내기
