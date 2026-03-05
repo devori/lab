@@ -400,6 +400,39 @@ button.danger:hover {
   color: #8a3902;
 }
 
+.monthly-meta-row {
+  margin-top: 12px;
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+}
+
+.quick-stats {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.stat-chip {
+  margin: 0;
+  padding: 7px 10px;
+  border: 1px solid #e8decc;
+  border-radius: 999px;
+  background: #fff;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.84rem;
+  color: #4a4f5c;
+}
+
+.stat-chip strong {
+  color: #1f2430;
+  font-size: 0.85rem;
+}
+
 .tx-list {
   list-style: none;
   margin: 12px 0 0;
@@ -545,5 +578,9 @@ button.danger:hover {
 
   .category-summary-grid {
     grid-template-columns: 1fr;
+  }
+
+  .monthly-meta-row {
+    align-items: stretch;
   }
 }

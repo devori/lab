@@ -20,6 +20,11 @@ export const EMPTY_SUMMARY: MonthlySummary = {
   balance: 0
 };
 
+export interface ParseResult<T> {
+  data: T;
+  recovered: boolean;
+}
+
 export function getCurrentMonthKey(): string {
   const now = new Date();
   const year = now.getFullYear();
@@ -48,41 +53,55 @@ export function shiftMonthKey(monthKey: string, offset: number): string {
 }
 
 export function parseTransactions(raw: string | null): Transaction[] {
+  return parseTransactionsWithRecovery(raw).data;
+}
+
+export function parseTransactionsWithRecovery(raw: string | null): ParseResult<Transaction[]> {
   if (!raw) {
-    return [];
+    return { data: [], recovered: false };
   }
 
   try {
     const parsed: unknown = JSON.parse(raw);
     if (!Array.isArray(parsed)) {
-      return [];
+      return { data: [], recovered: true };
     }
 
-    return parsed.filter(isValidTransaction).sort(sortTransactions);
+    const validItems = parsed.filter(isValidTransaction).sort(sortTransactions);
+    return {
+      data: validItems,
+      recovered: validItems.length !== parsed.length
+    };
   } catch {
-    return [];
+    return { data: [], recovered: true };
   }
 }
 
 export function parseMonthlyBudgets(raw: string | null): MonthlyBudgetMap {
+  return parseMonthlyBudgetsWithRecovery(raw).data;
+}
+
+export function parseMonthlyBudgetsWithRecovery(raw: string | null): ParseResult<MonthlyBudgetMap> {
   if (!raw) {
-    return {};
+    return { data: {}, recovered: false };
   }
 
   try {
     const parsed: unknown = JSON.parse(raw);
     if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
-      return {};
+      return { data: {}, recovered: true };
     }
 
-    return Object.entries(parsed).reduce<MonthlyBudgetMap>((acc, [monthKey, value]) => {
+    const validEntries = Object.entries(parsed).reduce<MonthlyBudgetMap>((acc, [monthKey, value]) => {
       if (/^\d{4}-\d{2}$/.test(monthKey) && typeof value === 'number' && Number.isFinite(value) && value > 0) {
         acc[monthKey] = Math.floor(value);
       }
       return acc;
     }, {});
+    const recovered = Object.keys(validEntries).length !== Object.keys(parsed).length;
+    return { data: validEntries, recovered };
   } catch {
-    return {};
+    return { data: {}, recovered: true };
   }
 }
 

@@ -12,9 +12,9 @@ import {
   getTodayDate,
   getTypeLabel,
   mergeTransactions,
-  parseMonthlyBudgets,
+  parseMonthlyBudgetsWithRecovery,
   parseImportTransactions,
-  parseTransactions,
+  parseTransactionsWithRecovery,
   shiftMonthKey,
   sortTransactions,
   STORAGE_KEY,
@@ -88,27 +88,50 @@ function createId(): string {
 }
 
 export default function HomePage() {
-  const [transactions, setTransactions] = useState<Transaction[]>(() => {
+  const [initialStorageLoad] = useState(() => {
     if (typeof window === 'undefined') {
-      return [];
+      return {
+        transactions: [] as Transaction[],
+        monthlyBudgets: {} as MonthlyBudgetMap,
+        recoveredTransactions: false,
+        recoveredBudgets: false
+      };
     }
 
-    return parseTransactions(window.localStorage.getItem(STORAGE_KEY));
+    const transactionsResult = parseTransactionsWithRecovery(window.localStorage.getItem(STORAGE_KEY));
+    const budgetResult = parseMonthlyBudgetsWithRecovery(window.localStorage.getItem(BUDGET_STORAGE_KEY));
+
+    return {
+      transactions: transactionsResult.data,
+      monthlyBudgets: budgetResult.data,
+      recoveredTransactions: transactionsResult.recovered,
+      recoveredBudgets: budgetResult.recovered
+    };
   });
-  const [monthlyBudgets, setMonthlyBudgets] = useState<MonthlyBudgetMap>(() => {
-    if (typeof window === 'undefined') {
-      return {};
+  const [transactions, setTransactions] = useState<Transaction[]>(initialStorageLoad.transactions);
+  const [monthlyBudgets, setMonthlyBudgets] = useState<MonthlyBudgetMap>(initialStorageLoad.monthlyBudgets);
+  const initialRecoveryNotice = useMemo(() => {
+    if (!initialStorageLoad.recoveredTransactions && !initialStorageLoad.recoveredBudgets) {
+      return null;
     }
 
-    return parseMonthlyBudgets(window.localStorage.getItem(BUDGET_STORAGE_KEY));
-  });
+    const recoveredTargets = [
+      initialStorageLoad.recoveredTransactions ? '거래 내역' : '',
+      initialStorageLoad.recoveredBudgets ? '월별 예산' : ''
+    ].filter(Boolean);
+
+    return {
+      tone: 'error' as NoticeTone,
+      message: `손상된 저장 데이터(${recoveredTargets.join(', ')})를 복구해 유효 항목만 불러왔습니다.`
+    };
+  }, [initialStorageLoad.recoveredTransactions, initialStorageLoad.recoveredBudgets]);
   const [selectedMonth, setSelectedMonth] = useState<string>(getCurrentMonthKey());
   const [budgetDrafts, setBudgetDrafts] = useState<Record<string, string>>({});
   const [filter, setFilter] = useState<TransactionFilter>('all');
   const [editingId, setEditingId] = useState<string | null>(null);
   const [formState, setFormState] = useState<TransactionFormState>(createEmptyForm('expense'));
   const [formErrors, setFormErrors] = useState<FormErrors>({});
-  const [notice, setNotice] = useState<{ tone: NoticeTone; message: string } | null>(null);
+  const [notice, setNotice] = useState<{ tone: NoticeTone; message: string } | null>(initialRecoveryNotice);
   const [importFile, setImportFile] = useState<File | null>(null);
   const [importMode, setImportMode] = useState<ImportMode>('merge');
   const [searchText, setSearchText] = useState<string>('');
@@ -226,6 +249,31 @@ export default function HomePage() {
     () => getMonthlyCategorySummary(transactions, selectedMonth, 'expense'),
     [transactions, selectedMonth]
   );
+  const monthlyQuickStats = useMemo(() => {
+    const expenseTransactions = monthlyTransactions.filter((item) => item.type === 'expense');
+    const totalExpense = expenseTransactions.reduce((sum, item) => sum + item.amount, 0);
+    const avgExpense = expenseTransactions.length > 0 ? Math.round(totalExpense / expenseTransactions.length) : 0;
+    const categoryTotals = expenseTransactions.reduce<Map<string, number>>((acc, item) => {
+      acc.set(item.category, (acc.get(item.category) ?? 0) + item.amount);
+      return acc;
+    }, new Map());
+
+    const topExpenseCategory = Array.from(categoryTotals.entries()).sort((a, b) => {
+      if (b[1] === a[1]) {
+        return a[0].localeCompare(b[0]);
+      }
+      return b[1] - a[1];
+    })[0];
+
+    return {
+      transactionCount: monthlyTransactions.length,
+      avgExpense,
+      expenseCount: expenseTransactions.length,
+      topExpenseCategory: topExpenseCategory
+        ? `${topExpenseCategory[0]} (${formatKRW(topExpenseCategory[1])})`
+        : '없음'
+    };
+  }, [monthlyTransactions]);
 
   const resetForm = (type: TransactionType = 'expense') => {
     setFormState(createEmptyForm(type));
@@ -436,6 +484,42 @@ export default function HomePage() {
 
     URL.revokeObjectURL(url);
     setNotice({ tone: 'success', message: 'JSON 내보내기를 완료했습니다.' });
+  };
+
+  const exportMonthlyCsv = () => {
+    if (monthlyTransactions.length === 0) {
+      setNotice({ tone: 'error', message: 'CSV로 내보낼 월별 내역이 없습니다.' });
+      return;
+    }
+
+    const escapeCsvField = (value: string | number) => {
+      const normalized = String(value).replaceAll('"', '""');
+      return /[",\n]/.test(normalized) ? `"${normalized}"` : normalized;
+    };
+
+    const rows = [
+      ['날짜', '구분', '카테고리', '금액', '메모'],
+      ...monthlyTransactions.map((item) => [
+        item.date,
+        getTypeLabel(item.type),
+        item.category,
+        String(item.amount),
+        item.memo
+      ])
+    ];
+
+    const payload = `\uFEFF${rows.map((row) => row.map(escapeCsvField).join(',')).join('\n')}`;
+    const blob = new Blob([payload], { type: 'text/csv;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement('a');
+    const stamp = new Date().toISOString().slice(0, 10);
+
+    anchor.href = url;
+    anchor.download = `ledger-monthly-${selectedMonth}-${stamp}.csv`;
+    anchor.click();
+
+    URL.revokeObjectURL(url);
+    setNotice({ tone: 'success', message: `${selectedMonth} 현재 목록 CSV 내보내기를 완료했습니다.` });
   };
 
   const importTransactions = async () => {
@@ -817,6 +901,28 @@ export default function HomePage() {
               {item.label}
             </button>
           ))}
+        </div>
+
+        <div className="monthly-meta-row">
+          <div className="quick-stats" aria-label="월별 빠른 통계">
+            <p className="stat-chip">
+              <span>거래 건수</span>
+              <strong>{monthlyQuickStats.transactionCount}건</strong>
+            </p>
+            <p className="stat-chip">
+              <span>지출 평균</span>
+              <strong>
+                {monthlyQuickStats.expenseCount > 0 ? formatKRW(monthlyQuickStats.avgExpense) : '없음'}
+              </strong>
+            </p>
+            <p className="stat-chip">
+              <span>최다 지출 카테고리</span>
+              <strong>{monthlyQuickStats.topExpenseCategory}</strong>
+            </p>
+          </div>
+          <button type="button" className="ghost" onClick={exportMonthlyCsv}>
+            현재 목록 CSV
+          </button>
         </div>
 
         <ul className="tx-list">
