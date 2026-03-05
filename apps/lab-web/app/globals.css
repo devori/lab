@@ -33,6 +33,74 @@ select {
   font: inherit;
 }
 
+.lab-home-page {
+  max-width: 980px;
+  margin: 0 auto;
+  padding: 32px 20px 48px;
+  display: grid;
+  gap: 18px;
+}
+
+.lab-home-hero {
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  background: var(--panel);
+  padding: 20px;
+  display: grid;
+  gap: 10px;
+}
+
+.lab-home-hero h1 {
+  margin: 0;
+  font-size: clamp(1.7rem, 3.8vw, 2.6rem);
+}
+
+.live-status {
+  margin: 0;
+  font-size: 0.92rem;
+  color: #0b6648;
+  font-weight: 700;
+}
+
+.product-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 12px;
+}
+
+.product-card {
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  background: var(--panel);
+  padding: 16px;
+  display: grid;
+  gap: 10px;
+}
+
+.product-card h2,
+.product-card p {
+  margin: 0;
+}
+
+.product-card p {
+  color: var(--muted);
+}
+
+.product-link {
+  width: fit-content;
+  text-decoration: none;
+  border: 1px solid transparent;
+  border-radius: 10px;
+  padding: 9px 12px;
+  background: var(--brand);
+  color: #fff;
+  font-weight: 600;
+}
+
+.product-link:hover {
+  background: var(--brand-dark);
+}
+
 .ledger-page {
   max-width: 980px;
   margin: 0 auto;
@@ -44,6 +112,23 @@ select {
 .header-block h1 {
   margin: 8px 0;
   font-size: clamp(1.6rem, 3.6vw, 2.4rem);
+}
+
+.home-link {
+  display: inline-flex;
+  align-items: center;
+  padding: 5px 10px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  color: var(--text);
+  background: #fff;
+  text-decoration: none;
+  font-size: 0.85rem;
+  font-weight: 600;
+}
+
+.home-link:hover {
+  background: #f8f8f2;
 }
 
 .eyebrow {
@@ -607,6 +692,10 @@ button.danger:hover {
 }
 
 @media (max-width: 720px) {
+  .lab-home-page {
+    padding: 20px 14px 36px;
+  }
+
   .ledger-page {
     padding: 18px 14px 36px;
   }
