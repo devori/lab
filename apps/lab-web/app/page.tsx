@@ -20,6 +20,14 @@ export default function LabHomePage() {
             가계부 열기
           </Link>
         </article>
+
+        <article className="product-card">
+          <h2>WMS</h2>
+          <p>SKU/로케이션/재고이동(IN·OUT·ADJUST)/현재고/이동로그를 제공하는 WMS P0 프로토타입입니다.</p>
+          <Link href="/wms" className="product-link">
+            WMS 열기
+          </Link>
+        </article>
       </section>
     </main>
   );
